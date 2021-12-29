@@ -4,8 +4,9 @@
 #include <BLEUtils.h>
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
+#include "soc/rtc_wdt.h"
 
-String serverName = "http://192.168.0.93:6060/";
+String serverName = "http://192.168.1.19:6060/";
 
 String beaconId = "beaconchambreg";
 
@@ -19,16 +20,14 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
 {
   void onResult(BLEAdvertisedDevice advertisedDevice)
   {
-
     std::string manData = advertisedDevice.getManufacturerData();
 
-    String res = "";
-
+    String res((char *)0);
     char *pHex = BLEUtils::buildHexData(nullptr, (uint8_t *)advertisedDevice.getManufacturerData().data(), advertisedDevice.getManufacturerData().length());
     res += pHex;
     free(pHex);
 
-    if (res.startsWith("4c0010050")) //if (res.startsWith("4c0010050"))
+    if (res.startsWith("4c0010050") | res.startsWith("4c0010052")) // Serie 0,1,2,3,4,5 | Serie 6,7
     {
      // Serial.println("Apple Watch Found! " + String(advertisedDevice.getRSSI()  + advertisedDevice.toString()));
       Serial.printf("Apple Watch RRSI : %d, Advertised Device: %s \n", advertisedDevice.getRSSI(),advertisedDevice.toString().c_str());
@@ -40,13 +39,18 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
         String serverPath = serverName + "beaconTrack/" + beaconId + "/" + res + "/" + String(advertisedDevice.getRSSI());
 
         // Your Domain name with URL path or IP address with path
-        http.begin(serverPath.c_str());
-        http.setTimeout(1);
+        bool httpInitResult = http.begin(serverPath.c_str());
+        http.setTimeout(1); //TODO : remove. Hack to prevent watchdog timeout. TODO : create a tasks, a queue, and run on other core.
+
+        if( httpInitResult == false ) {
+          Serial.println("http.begin() failed!"); //debug
+        }
 
         // Send HTTP GET request
         int httpResponseCode = http.GET();
 
-        if (false)//httpResponseCode > 0)
+
+        if (httpResponseCode > 0)
         {
           Serial.print("HTTP Response code: ");
           Serial.println(httpResponseCode);
@@ -55,9 +59,12 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
         }
         else
         {
-          //Serial.print("Error code: ");
-          //Serial.println(httpResponseCode);
+          Serial.print("Error code: ");
+          Serial.println(httpResponseCode);
           //WiFi.disconnect();
+          if(httpResponseCode == -7){
+            ESP.restart(); // TODO : fix 
+          }
         }
         // Free resources
         http.end();
@@ -92,6 +99,10 @@ void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info){
 
 void setup()
 {
+  // TODO : remove
+  rtc_wdt_protect_off();
+  rtc_wdt_disable();
+  disableCore0WDT();
   // put your setup code here, to run once:
   Serial.begin(115200);
 
