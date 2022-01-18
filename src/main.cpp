@@ -6,15 +6,25 @@
 #include <BLEAdvertisedDevice.h>
 #include "soc/rtc_wdt.h"
 
-String serverName = "http://192.168.1.19:6060/";
+String serverName = "http://192.168.1.11:6060/";
 
-String beaconId = "beaconchambreg";
+String beaconId = "cuisine";
 
 int scanTime = 3; //In seconds
 
 WiFiManager wifiManager;
 
 BLEScan *pBLEScan;
+
+QueueHandle_t trackQueue;
+
+
+// Not used currently
+struct track {
+  char macAddress[18];
+  int rssi;
+};
+
 
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
 {
@@ -32,15 +42,47 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
      // Serial.println("Apple Watch Found! " + String(advertisedDevice.getRSSI()  + advertisedDevice.toString()));
       Serial.printf("Apple Watch RRSI : %d, Advertised Device: %s \n", advertisedDevice.getRSSI(),advertisedDevice.toString().c_str());
 
-      if (WiFi.status() == WL_CONNECTED)
-      {
-        HTTPClient http;
+   
 
         String serverPath = serverName + "beaconTrack/" + beaconId + "/" + res + "/" + String(advertisedDevice.getRSSI());
 
-        // Your Domain name with URL path or IP address with path
+        int buff_size = 80;
+
+        // Convert to char array to put it in the queue
+        char char_array[buff_size];
+
+        serverPath.toCharArray(char_array, buff_size);
+
+        // Send it in the queue
+        xQueueSend(trackQueue, char_array, (TickType_t) 0);
+
+     
+    }
+    else
+    {
+      //Serial.println(res);
+    }
+
+    //Serial.printf("Advertised Device: %s \n", advertisedDevice.toString().c_str());
+  }
+};
+
+void taskWebRequests(void *pvParameters) {
+  for(;;){
+   if (WiFi.status() == WL_CONNECTED){
+        HTTPClient http;
+        char charArrayFromQueue[80];
+
+
+    // Wait for new track request
+      if( xQueueReceive(trackQueue, &( charArrayFromQueue ), ( TickType_t ) 0 ) ) {
+            // Send request
+
+
+        String serverPath = charArrayFromQueue;
+       // Your Domain name with URL path or IP address with path
         bool httpInitResult = http.begin(serverPath.c_str());
-        http.setTimeout(1); //TODO : remove. Hack to prevent watchdog timeout. TODO : create a tasks, a queue, and run on other core.
+        //http.setTimeout(1); //TODO : remove. Hack to prevent watchdog timeout. TODO : create a tasks, a queue, and run on other core.
 
         if( httpInitResult == false ) {
           Serial.println("http.begin() failed!"); //debug
@@ -69,19 +111,16 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
         // Free resources
         http.end();
       }
-      else
-      {
+    } else {
         Serial.println("WiFi Disconnected from BLE func");
       }
-    }
-    else
-    {
-      //Serial.println(res);
-    }
-
-    //Serial.printf("Advertised Device: %s \n", advertisedDevice.toString().c_str());
+  
+  
+  
+    usleep(10);
   }
-};
+
+}
 
 void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info){
   Serial.println("Disconnected from WiFi access point");
@@ -99,10 +138,6 @@ void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info){
 
 void setup()
 {
-  // TODO : remove
-  rtc_wdt_protect_off();
-  rtc_wdt_disable();
-  disableCore0WDT();
   // put your setup code here, to run once:
   Serial.begin(115200);
 
@@ -112,6 +147,20 @@ void setup()
   wifiManager.setConfigPortalTimeout(300); // 5 minutes to setup before reboot
 
   WiFi.onEvent(WiFiStationDisconnected, SYSTEM_EVENT_STA_DISCONNECTED); 
+
+
+  // Setup the track queue
+  trackQueue = xQueueCreate(10, 80 * sizeof(char));
+
+
+  // Setup the web request task
+  xTaskCreate(
+    taskWebRequests, /* Task function. */
+    "taskWebRequests", /* name of task. */
+    10000, /* Stack size of task */
+    NULL, /* parameter of the task */
+    1, /* priority of the task */
+    NULL); /* Task handle to keep track of created task */
 
   if (wifiManager.autoConnect("esp32beacon")){
     HTTPClient http;
