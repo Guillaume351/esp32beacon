@@ -7,13 +7,15 @@
 #include "soc/rtc_wdt.h"
 #include <Arduino_JSON.h>
 
-String serverName = "http://192.168.1.11:6060/";
+String serverName = "";
 
-String beaconId = "beaconchambreg";
+String beaconId = "";
 
-int scanTime = 3; //In seconds
+int scanTime = 3; // In seconds
 
 WiFiManager wifiManager;
+WiFiManagerParameter custom_serverIP("server", "Server IP", serverName.c_str(), 40); // 40 is the length
+WiFiManagerParameter custom_beaconId("beacon", "Beacon ID", beaconId.c_str(), 40);
 
 BLEScan *pBLEScan;
 
@@ -43,24 +45,24 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
     {
       Serial.printf("Apple Watch RRSI : %d, Advertised Device: %s \n", advertisedDevice.getRSSI(), advertisedDevice.toString().c_str());
 
-      if(advertisedDevice.getRSSI() > maxRssi){
-      String serverPath = serverName + "beaconTrack/" + beaconId + "/" + res + "/" + String(advertisedDevice.getRSSI());
+      if (advertisedDevice.getRSSI() > maxRssi)
+      {
+        String serverPath = serverName + "beaconTrack/" + beaconId + "/" + res + "/" + String(advertisedDevice.getRSSI());
 
-      int buff_size = 80;
+        int buff_size = 80;
 
-      // Convert to char array to put it in the queue
-      char char_array[buff_size];
+        // Convert to char array to put it in the queue
+        char char_array[buff_size];
 
-      serverPath.toCharArray(char_array, buff_size);
+        serverPath.toCharArray(char_array, buff_size);
 
-      // Send it in the queue
-      xQueueSend(trackQueue, char_array, (TickType_t)0);
+        // Send it in the queue
+        xQueueSend(trackQueue, char_array, (TickType_t)0);
       }
-
     }
     else
     {
-      //Serial.println(res);
+      // Serial.println(res);
     }
   }
 };
@@ -82,11 +84,11 @@ void taskWebRequests(void *pvParameters)
         String serverPath = charArrayFromQueue;
         // Your Domain name with URL path or IP address with path
         bool httpInitResult = http.begin(serverPath.c_str());
-        //http.setTimeout(1); //TODO : remove. Hack to prevent watchdog timeout. TODO : create a tasks, a queue, and run on other core.
+        // http.setTimeout(1); //TODO : remove. Hack to prevent watchdog timeout. TODO : create a tasks, a queue, and run on other core.
 
         if (httpInitResult == false)
         {
-          Serial.println("http.begin() failed!"); //debug
+          Serial.println("http.begin() failed!"); // debug
         }
 
         // Send HTTP GET request
@@ -96,7 +98,7 @@ void taskWebRequests(void *pvParameters)
         {
           // Parse json to get current max RSSI
           String payload = http.getString();
-          //Serial.println(payload);
+          // Serial.println(payload);
           JSONVar json = JSON.parse(payload);
 
           maxRssi = json["maxRssi"];
@@ -107,7 +109,7 @@ void taskWebRequests(void *pvParameters)
         {
           Serial.print("Error code: ");
           Serial.println(httpResponseCode);
-          //WiFi.disconnect();
+          // WiFi.disconnect();
           if (httpResponseCode == -7)
           {
             ESP.restart(); // TODO : fix
@@ -128,7 +130,7 @@ void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info)
 {
   Serial.println("Disconnected from WiFi access point");
   Serial.print("WiFi lost connection. Reason: ");
-  Serial.println(info.disconnected.reason);
+  // Serial.println(info.disconnected.reason);
   Serial.println("Trying to Reconnect");
 
   if (wifiManager.autoConnect("esp32beacon"))
@@ -151,7 +153,10 @@ void setup()
   wifiManager.setConnectRetries(10);
   wifiManager.setConfigPortalTimeout(300); // 5 minutes to setup before reboot
 
-  WiFi.onEvent(WiFiStationDisconnected, SYSTEM_EVENT_STA_DISCONNECTED);
+  wifiManager.addParameter(&custom_serverIP);
+  wifiManager.addParameter(&custom_beaconId);
+
+  // WiFi.onEvent(WiFiStationDisconnected, SYSTEM_EVENT_STA_DISCONNECTED); TODO: update to new WifiManager API
 
   // Setup the track queue
   trackQueue = xQueueCreate(10, 80 * sizeof(char));
@@ -167,6 +172,9 @@ void setup()
 
   if (wifiManager.autoConnect("esp32beacon"))
   {
+    serverName = custom_serverIP.getValue();
+    beaconId = custom_beaconId.getValue();
+
     HTTPClient http;
     String serverPath = serverName + "registerBeacon/" + beaconId;
     BLEDevice::init("");
@@ -196,7 +204,7 @@ void setup()
     ESP.restart();
   }
 
-  pBLEScan = BLEDevice::getScan(); //create new scan
+  pBLEScan = BLEDevice::getScan(); // create new scan
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
 }
 
