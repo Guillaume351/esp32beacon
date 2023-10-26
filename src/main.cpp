@@ -6,6 +6,7 @@
 #include <BLEAdvertisedDevice.h>
 #include "soc/rtc_wdt.h"
 #include <Arduino_JSON.h>
+#include <EEPROM.h>
 
 String serverName = "";
 
@@ -143,10 +144,69 @@ void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info)
   }
 }
 
+void saveCustomParametersToEEPROMIfNeeded()
+{
+  if (!serverName.isEmpty())
+  {
+    // Saving server name to EEPROM
+    for (int i = 0; i < serverName.length(); ++i)
+    {
+      EEPROM.write(i, serverName[i]);
+    }
+    EEPROM.write(serverName.length(), '\0'); // Null-terminate the string
+  }
+
+  if (!beaconId.isEmpty())
+  {
+    // Saving beacon ID to EEPROM
+    int offset = 40 + 1; // Assuming server name length is maximum 40 characters
+    for (int i = 0; i < beaconId.length(); ++i)
+    {
+      EEPROM.write(offset + i, beaconId[i]);
+    }
+    EEPROM.write(offset + beaconId.length(), '\0'); // Null-terminate the string
+  }
+
+  // Commit the data to the EEPROM
+  EEPROM.commit();
+  EEPROM.end();
+}
+
+void loadCustomParametersFromEEPROMIfAvailable()
+{
+  // Loading server name from EEPROM
+  char readChar;
+  serverName = "";
+  for (int i = 0; i < 40; ++i) // Assuming a maximum length of 40 characters for the server name
+  {
+    readChar = EEPROM.read(i);
+    if (readChar == '\0') // Break if null-terminator is encountered
+    {
+      break;
+    }
+    serverName += readChar;
+  }
+
+  // Loading beacon ID from EEPROM
+  int offset = 40 + 1; // Assuming server name length is maximum 40 characters
+  beaconId = "";
+  for (int i = 0; i < 40; ++i) // Assuming a maximum length of 40 characters for the beacon ID
+  {
+    readChar = EEPROM.read(offset + i);
+    if (readChar == '\0') // Break if null-terminator is encountered
+    {
+      break;
+    }
+    beaconId += readChar;
+  }
+  EEPROM.end();
+}
+
 void setup()
 {
   // put your setup code here, to run once:
   Serial.begin(115200);
+  EEPROM.begin(82);
 
   wifiManager.setWiFiAutoReconnect(true);
   wifiManager.setConnectTimeout(10);
@@ -156,7 +216,8 @@ void setup()
   wifiManager.addParameter(&custom_serverIP);
   wifiManager.addParameter(&custom_beaconId);
 
-  // WiFi.onEvent(WiFiStationDisconnected, SYSTEM_EVENT_STA_DISCONNECTED); TODO: update to new WifiManager API
+  // Load custom parameters from EEPROM first
+  loadCustomParametersFromEEPROMIfAvailable();
 
   // Setup the track queue
   trackQueue = xQueueCreate(10, 80 * sizeof(char));
@@ -172,8 +233,21 @@ void setup()
 
   if (wifiManager.autoConnect("esp32beacon"))
   {
-    serverName = custom_serverIP.getValue();
-    beaconId = custom_beaconId.getValue();
+    // If WiFiManager has new values, overwrite the loaded values
+    if (String(custom_serverIP.getValue()).length() > 0)
+    {
+      serverName = custom_serverIP.getValue();
+    }
+
+    if (String(custom_beaconId.getValue()).length() > 0)
+    {
+      beaconId = custom_beaconId.getValue();
+    }
+
+    // Save custom parameters to EEPROM if they have been updated
+    saveCustomParametersToEEPROMIfNeeded();
+
+    printf("Server IP: %s\n", serverName.c_str());
 
     HTTPClient http;
     String serverPath = serverName + "registerBeacon/" + beaconId;
