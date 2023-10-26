@@ -48,7 +48,7 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
 
       if (advertisedDevice.getRSSI() > maxRssi)
       {
-        String serverPath = serverName + "beaconTrack/" + beaconId + "/" + res + "/" + String(advertisedDevice.getRSSI());
+        String serverPath = serverName + "/beaconTrack/" + beaconId + "/" + res + "/" + String(advertisedDevice.getRSSI());
 
         int buff_size = 80;
 
@@ -123,6 +123,8 @@ void taskWebRequests(void *pvParameters)
     else
     {
       Serial.println("WiFi Disconnected from BLE func");
+      // Sleep for 1 second
+      vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
   }
 }
@@ -174,6 +176,9 @@ void saveCustomParametersToEEPROMIfNeeded()
 
 void loadCustomParametersFromEEPROMIfAvailable()
 {
+
+  Serial.println("Loading custom parameters from EEPROM");
+
   // Loading server name from EEPROM
   char readChar;
   serverName = "";
@@ -187,6 +192,10 @@ void loadCustomParametersFromEEPROMIfAvailable()
     serverName += readChar;
   }
 
+  // Print server name
+  Serial.print("Server name: ");
+  Serial.println(serverName);
+
   // Loading beacon ID from EEPROM
   int offset = 40 + 1; // Assuming server name length is maximum 40 characters
   beaconId = "";
@@ -199,6 +208,9 @@ void loadCustomParametersFromEEPROMIfAvailable()
     }
     beaconId += readChar;
   }
+  Serial.print("Beacon ID: ");
+  Serial.println(beaconId);
+
   EEPROM.end();
 }
 
@@ -250,7 +262,7 @@ void setup()
     printf("Server IP: %s\n", serverName.c_str());
 
     HTTPClient http;
-    String serverPath = serverName + "registerBeacon/" + beaconId;
+    String serverPath = serverName + "/registerBeacon/" + beaconId;
     BLEDevice::init("");
     // Your Domain name with URL path or IP address with path
     http.begin(serverPath.c_str());
