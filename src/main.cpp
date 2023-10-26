@@ -150,6 +150,9 @@ void saveCustomParametersToEEPROMIfNeeded()
 {
   if (!serverName.isEmpty())
   {
+    // Print server name
+    Serial.print("SAVING Server name: ");
+    Serial.println(serverName);
     // Saving server name to EEPROM
     for (int i = 0; i < serverName.length(); ++i)
     {
@@ -160,6 +163,10 @@ void saveCustomParametersToEEPROMIfNeeded()
 
   if (!beaconId.isEmpty())
   {
+    // Print beacon ID
+    Serial.print("SAVING Beacon ID: ");
+    Serial.println(beaconId);
+
     // Saving beacon ID to EEPROM
     int offset = 40 + 1; // Assuming server name length is maximum 40 characters
     for (int i = 0; i < beaconId.length(); ++i)
@@ -210,8 +217,6 @@ void loadCustomParametersFromEEPROMIfAvailable()
   }
   Serial.print("Beacon ID: ");
   Serial.println(beaconId);
-
-  EEPROM.end();
 }
 
 void setup()
@@ -245,19 +250,26 @@ void setup()
 
   if (wifiManager.autoConnect("esp32beacon"))
   {
-    // If WiFiManager has new values, overwrite the loaded values
-    if (String(custom_serverIP.getValue()).length() > 0)
+    // If WiFiManager has new values, overwrite the loaded values (check if it's not def)
+    if (String(custom_serverIP.getValue()).isEmpty() == false && String(custom_beaconId.getValue()).isEmpty() == false)
     {
+      // log
+      Serial.print("NOT NULL Server IP: ");
+      Serial.println(custom_serverIP.getValue());
       serverName = custom_serverIP.getValue();
-    }
 
-    if (String(custom_beaconId.getValue()).length() > 0)
-    {
+      Serial.print("NOT NULL Beacon ID: ");
+      Serial.println(custom_beaconId.getValue());
+      Serial.println(String(custom_beaconId.getValue()));
       beaconId = custom_beaconId.getValue();
-    }
 
-    // Save custom parameters to EEPROM if they have been updated
-    saveCustomParametersToEEPROMIfNeeded();
+      // Save custom parameters to EEPROM if they have been updated
+      saveCustomParametersToEEPROMIfNeeded();
+    }
+    else
+    {
+      EEPROM.end();
+    }
 
     printf("Server IP: %s\n", serverName.c_str());
 
